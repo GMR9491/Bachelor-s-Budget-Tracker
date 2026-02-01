@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BachelorBudget Pro</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Google Fonts: Plus Jakarta Sans -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-bg: rgba(17, 24, 39, 0.7);
+        }
+
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #0f172a; /* Slate 900 */
+            color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        /* Background Image for Dashboard */
+        .dashboard-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-image: url('https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2070&auto=format&fit=crop'); 
+            background-size: cover;
+            background-position: center;
+            opacity: 0.15;
+            z-index: -1;
+            filter: blur(80px);
+        }
+
+        /* Premium Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Glassmorphism Utilities */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .glass-input {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            transition: all 0.3s ease;
+        }
+        .glass-input:focus {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: #6366f1; /* Indigo 500 */
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        }
+
+        /* Animations */
+        .fade-in-up { animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(20px); }
+        @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+        
+        .slide-in-right { animation: slideInRight 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; transform: translateX(50px); opacity: 0; }
+        @keyframes slideInRight { to { transform: translateX(0); opacity: 1; } }
+
+        .scale-in { animation: scaleIn 0.3s ease-out forwards; transform: scale(0.95); opacity: 0; }
+        @keyframes scaleIn { to { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- MOCK DATABASE ---
+        const MockDB = {
+            load: () => JSON.parse(localStorage.getItem('bachelor_db_pro') || '{}'),
+            save: (data) => localStorage.setItem('bachelor_db_pro', JSON.stringify(data)),
+            createUser: (email, password) => {
+                const db = MockDB.load();
+                if (db[email]) throw new Error("User exists.");
+                db[email] = { password, budget: 25000, expenses: [] };
+                MockDB.save(db);
+                return { email };
+            },
+            authenticate: (email, password) => {
+                const db = MockDB.load();
+                const user = db[email];
+                if (!user || user.password !== password) throw new Error("Invalid credentials.");
+                return { email };
+            },
+            resetPassword: (email, newPassword) => {
+                const db = MockDB.load();
+                if (!db[email]) throw new Error("Email not registered.");
+                db[email].password = newPassword;
+                MockDB.save(db);
+                return true;
+            },
+            getData: (email) => MockDB.load()[email] || { expenses: [], budget: 25000 },
+            addExpense: (email, expense) => {
+                const db = MockDB.load();
+                if (!db[email]) return;
+                db[email].expenses.push({ ...expense, id: Date.now().toString() });
+                MockDB.save(db);
+            },
+            updateExpense: (email, id, data) => {
+                const db = MockDB.load();
+                const idx = db[email]?.expenses.findIndex(e => e.id === id);
+                if (idx > -1) { db[email].expenses[idx] = { ...db[email].expenses[idx], ...data }; MockDB.save(db); }
+            },
+            deleteExpense: (email, id) => {
+                const db = MockDB.load();
+                if (db[email]) { db[email].expenses = db[email].expenses.filter(e => e.id !== id); MockDB.save(db); }
+            },
+            updateBudget: (email, amount) => {
+                const db = MockDB.load();
+                if (db[email]) { db[email].budget = amount; MockDB.save(db); }
+            }
+        };
+
+        // --- COMPONENTS ---
+
+        const DeleteModal = ({ isOpen, onClose, onConfirm }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 scale-in">
+                    <div className="glass-panel w-full max-w-sm rounded-2xl p-6 border-l-4 border-rose-500">
+                        <h3 className="text-xl font-bold text-white mb-2">Confirm Deletion</h3>
+                        <p className="text-slate-400 text-sm mb-6">Are you sure you want to remove this transaction? This action is irreversible.</p>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-300 hover:text-white transition">Cancel</button>
+                            <button onClick={onConfirm} className="px-5 py-2 text-sm font-bold bg-rose-500 hover:bg-rose-600 text-white rounded-lg shadow-lg shadow-rose-500/20 transition-all transform active:scale-95">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PasswordInput = ({ value, onChange, placeholder = "••••••••" }) => {
+            const [show, setShow] = useState(false);
+            return (
+                <div className="relative">
+                    <input 
+                        type={show ? "text" : "password"} 
+                        value={value} 
+                        onChange={onChange}
+                        className="w-full px-4 py-3.5 glass-input rounded-xl focus:outline-none pr-10" 
+                        placeholder={placeholder} 
+                    />
+                    <button 
+                        type="button" 
+                        onClick={() => setShow(!show)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1"
+                        tabIndex="-1"
+                    >
+                        {show ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                        )}
+                    </button>
+                </div>
+            );
+        };
+
+        const Login = ({ onLogin }) => {
+            const [view, setView] = useState('login'); 
+            const [isSignUp, setIsSignUp] = useState(false);
+            
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [otp, setOtp] = useState('');
+            const [newPassword, setNewPassword] = useState('');
+            
+            const [error, setError] = useState('');
+            const [successMsg, setSuccessMsg] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const validateGmail = (email) => /^[a-zA-Z0-9._%+-]+@gmail\.com$/.test(email.toLowerCase());
+
+            const handleLoginSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                await new Promise(r => setTimeout(r, 800)); 
+
+                if (!email.includes('@gmail.com')) { setError('Only @gmail.com supported'); setLoading(false); return; }
+                if (password.length < 6) { setError('Min 6 chars password'); setLoading(false); return; }
+
+                try {
+                    isSignUp ? MockDB.createUser(email, password) : MockDB.authenticate(email, password);
+                    onLogin(email);
+                } catch (err) { setError(err.message); }
+                setLoading(false);
+            };
+
+            const handleSendReset = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                await new Promise(r => setTimeout(r, 1000)); 
+
+                if (!email.trim() || !validateGmail(email)) {
+                    setError('Please enter a valid Gmail address.');
+                    setLoading(false);
+                    return;
+                }
+
+                setSuccessMsg(`OTP sent to ${email}`);
+                setTimeout(() => {
+                    setSuccessMsg('');
+                    setView('verify');
+                }, 1500);
+                setLoading(false);
+            };
+
+            const handleVerifyReset = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+                await new Promise(r => setTimeout(r, 800));
+
+                if (otp !== '1234') {
+                    setError("Invalid OTP code. (Hint: Use 1234)");
+                    setLoading(false);
+                    return;
+                }
+                if (newPassword.length < 6) {
+                    setError("New password must be at least 6 chars.");
+                    setLoading(false);
+                    return;
+                }
+
+                try {
+                    MockDB.resetPassword(email, newPassword);
+                    setSuccessMsg("Password updated successfully!");
+                    setTimeout(() => {
+                        setSuccessMsg('');
+                        setView('login');
+                        setIsSignUp(false);
+                        setPassword(''); 
+                    }, 1500);
+                } catch (err) {
+                    setError(err.message);
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="min-h-screen flex w-full bg-black">
+                    {/* Left Side - Image */}
+                    <div className="hidden lg:flex w-1/2 relative overflow-hidden">
+                        <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop" 
+                             className="absolute inset-0 w-full h-full object-cover opacity-80 hover:scale-105 transition-transform duration-[20s]" alt="Modern Office" />
+                        <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent"></div>
+                        <div className="relative z-10 p-16 flex flex-col justify-end h-full slide-in-right">
+                            <h1 className="text-5xl font-bold text-white mb-4">Master Your<br/>Finances.</h1>
+                            <p className="text-lg text-slate-300 max-w-md">Track expenses, analyze trends, and save for what matters with BachelorBudget Pro.</p>
+                        </div>
+                    </div>
+
+                    {/* Right Side - Forms */}
+                    <div className="w-full lg:w-1/2 flex items-center justify-center p-8 relative">
+                        {/* Background blobs */}
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600 rounded-full mix-blend-screen filter blur-[100px] opacity-20"></div>
+                        <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-600 rounded-full mix-blend-screen filter blur-[100px] opacity-20"></div>
+
+                        <div className="w-full max-w-md z-10 fade-in-up">
+                            
+                            {/* --- LOGIN / SIGNUP VIEW --- */}
+                            {view === 'login' && (
+                                <>
+                                    <div className="mb-10">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="w-8 h-8 bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center text-white font-bold">B</div>
+                                            <span className="text-xl font-bold tracking-tight text-white">BachelorBudget Pro</span>
+                                        </div>
+                                        <h2 className="text-3xl font-bold text-white">{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
+                                        <p className="text-slate-400 mt-2">Enter your credentials to access your dashboard.</p>
+                                    </div>
+
+                                    <form onSubmit={handleLoginSubmit} className="space-y-5">
+                                        {error && <div className="p-3 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm font-medium flex items-center gap-2"><span>⚠️</span> {error}</div>}
+                                        {successMsg && <div className="p-3 bg-emerald-500/10 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm font-medium flex items-center gap-2"><span>✅</span> {successMsg}</div>}
+                                        
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Email</label>
+                                            <input type="text" value={email} onChange={e => setEmail(e.target.value)} 
+                                                className="w-full px-4 py-3.5 glass-input rounded-xl focus:outline-none" placeholder="name@gmail.com" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between items-center">
+                                                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
+                                                {!isSignUp && (
+                                                    <button type="button" onClick={() => { setView('forgot'); setError(''); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                                                        Forgot Password?
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} />
+                                        </div>
+
+                                        <button type="submit" disabled={loading} 
+                                            className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/25 transition-all transform active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed">
+                                            {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
+                                        </button>
+                                    </form>
+
+                                    <div className="mt-8 text-center">
+                                        <p className="text-slate-500 text-sm">
+                                            {isSignUp ? "Already have an account?" : "New to BachelorBudget?"} 
+                                            <button onClick={() => {setIsSignUp(!isSignUp); setError('');}} className="ml-2 text-indigo-400 hover:text-indigo-300 font-semibold transition">
+                                                {isSignUp ? "Log In" : "Create Account"}
+                                            </button>
+                                        </p>
+                                    </div>
+                                </>
+                            )}
+
+                            {/* --- FORGOT PASSWORD VIEW --- */}
+                            {view === 'forgot' && (
+                                <>
+                                    <div className="mb-8">
+                                        <button onClick={() => setView('login')} className="text-slate-400 hover:text-white flex items-center gap-2 mb-6 text-sm font-medium transition-colors">
+                                            ← Back to Login
+                                        </button>
+                                        <h2 className="text-3xl font-bold text-white">Reset Password</h2>
+                                        <p className="text-slate-400 mt-2">Enter your email to receive a verification code.</p>
+                                    </div>
+
+                                    <form onSubmit={handleSendReset} className="space-y-5">
+                                        {error && <div className="p-3 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm font-medium">⚠️ {error}</div>}
+                                        {successMsg && <div className="p-3 bg-emerald-500/10 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm font-medium">✅ {successMsg}</div>}
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Email</label>
+                                            <input type="text" value={email} onChange={e => setEmail(e.target.value)} 
+                                                className="w-full px-4 py-3.5 glass-input rounded-xl focus:outline-none" placeholder="name@gmail.com" />
+                                        </div>
+
+                                        <button type="submit" disabled={loading} 
+                                            className="w-full py-4 bg-white text-slate-900 hover:bg-slate-200 font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.98] disabled:opacity-70">
+                                            {loading ? 'Sending Code...' : 'Send Reset Link'}
+                                        </button>
+                                    </form>
+                                </>
+                            )}
+
+                            {/* --- VERIFY OTP VIEW --- */}
+                            {view === 'verify' && (
+                                <>
+                                    <div className="mb-8">
+                                        <button onClick={() => setView('forgot')} className="text-slate-400 hover:text-white flex items-center gap-2 mb-6 text-sm font-medium transition-colors">
+                                            ← Change Email
+                                        </button>
+                                        <h2 className="text-3xl font-bold text-white">Verify Code</h2>
+                                        <p className="text-slate-400 mt-2">Enter the OTP sent to <b>{email}</b> and your new password.</p>
+                                        <div className="mt-2 text-xs text-indigo-400 bg-indigo-500/10 inline-block px-2 py-1 rounded border border-indigo-500/20">Demo Hint: Use code 1234</div>
+                                    </div>
+
+                                    <form onSubmit={handleVerifyReset} className="space-y-5">
+                                        {error && <div className="p-3 bg-rose-500/10 border border-rose-500/50 rounded-lg text-rose-400 text-sm font-medium">⚠️ {error}</div>}
+                                        {successMsg && <div className="p-3 bg-emerald-500/10 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm font-medium">✅ {successMsg}</div>}
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">OTP Code</label>
+                                            <input type="text" value={otp} onChange={e => setOtp(e.target.value)} 
+                                                className="w-full px-4 py-3.5 glass-input rounded-xl focus:outline-none tracking-widest text-center font-mono text-lg" placeholder="0000" maxLength="4" />
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">New Password</label>
+                                            <PasswordInput value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="New strong password" />
+                                        </div>
+
+                                        <button type="submit" disabled={loading} 
+                                            className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white font-bold rounded-xl shadow-lg transition-all transform active:scale-[0.98] disabled:opacity-70">
+                                            {loading ? 'Updating...' : 'Set New Password'}
+                                        </button>
+                                    </form>
+                                </>
+                            )}
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Dashboard = ({ userEmail, doLogout }) => {
+            const [data, setData] = useState({ expenses: [], budget: 25000 });
+            const [filter, setFilter] = useState('all');
+            const [formData, setFormData] = useState({ desc: '', amount: '', category: 'Food & Dining', date: new Date().toISOString().split('T')[0] });
+            const [editId, setEditId] = useState(null);
+            const [deleteId, setDeleteId] = useState(null);
+            const [currentTime, setCurrentTime] = useState(new Date());
+
+            const trendRef = useRef(null);
+            const catRef = useRef(null);
+            const trendInstance = useRef(null);
+            const catInstance = useRef(null);
+
+            // Clock
+            useEffect(() => {
+                const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+                return () => clearInterval(timer);
+            }, []);
+
+            // Data Load
+            useEffect(() => { setData(MockDB.getData(userEmail)); }, [userEmail]);
+
+            // Charts
+            useEffect(() => {
+                if (!trendRef.current || !catRef.current) return;
+
+                const { expenses } = data;
+                const dateMap = {};
+                const catMap = {};
+                
+                expenses.forEach(e => {
+                    dateMap[e.date] = (dateMap[e.date] || 0) + Number(e.amount);
+                    catMap[e.category] = (catMap[e.category] || 0) + Number(e.amount);
+                });
+
+                const sortedDates = Object.keys(dateMap).sort();
+                const trendData = sortedDates.map(d => dateMap[d]);
+                const categories = Object.keys(catMap);
+                const catData = Object.values(catMap);
+
+                if (trendInstance.current) trendInstance.current.destroy();
+                if (catInstance.current) catInstance.current.destroy();
+
+                // Pro Gradient for Line Chart
+                const ctx = trendRef.current.getContext('2d');
+                const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+                gradient.addColorStop(0, 'rgba(99, 102, 241, 0.5)'); // Indigo
+                gradient.addColorStop(1, 'rgba(99, 102, 241, 0)');
+
+                trendInstance.current = new Chart(trendRef.current, {
+                    type: 'line',
+                    data: {
+                        labels: sortedDates,
+                        datasets: [{
+                            label: 'Spend',
+                            data: trendData,
+                            borderColor: '#818cf8',
+                            backgroundColor: gradient,
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true,
+                            pointBackgroundColor: '#1e293b',
+                            pointBorderColor: '#818cf8',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            pointHoverRadius: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1e293b', titleColor: '#fff', bodyColor: '#cbd5e1', padding: 10, borderColor: '#334155', borderWidth: 1 } },
+                        scales: { 
+                            x: { grid: { display: false, color: '#334155' }, ticks: { color: '#94a3b8' } }, 
+                            y: { beginAtZero: true, border: { display: false }, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } } 
+                        }
+                    }
+                });
+
+                catInstance.current = new Chart(catRef.current, {
+                    type: 'doughnut',
+                    data: {
+                        labels: categories,
+                        datasets: [{
+                            data: catData,
+                            backgroundColor: ['#6366f1', '#ec4899', '#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#ef4444'],
+                            borderWidth: 0,
+                            hoverOffset: 5
+                        }]
+                    },
+                    options: { 
+                        responsive: true, 
+                        maintainAspectRatio: false, 
+                        cutout: '75%', 
+                        plugins: { legend: { position: 'right', labels: { usePointStyle: true, pointStyle: 'circle', color: '#cbd5e1', font: { family: 'Plus Jakarta Sans', size: 11 } } } } 
+                    }
+                });
+            }, [data]);
+
+            const handleSave = (e) => {
+                e.preventDefault();
+                editId ? MockDB.updateExpense(userEmail, editId, formData) : MockDB.addExpense(userEmail, formData);
+                setFormData({ ...formData, desc: '', amount: '' });
+                setEditId(null);
+                setData(MockDB.getData(userEmail));
+            };
+
+            const confirmDelete = () => {
+                MockDB.deleteExpense(userEmail, deleteId);
+                if (editId === deleteId) { setEditId(null); setFormData({ ...formData, desc: '', amount: '' }); }
+                setDeleteId(null);
+                setData(MockDB.getData(userEmail));
+            };
+
+            const total = data.expenses.reduce((s, i) => s + Number(i.amount), 0);
+            const displayList = filter === 'all' ? data.expenses : data.expenses.filter(e => e.category === filter);
+            const uniqueDays = new Set(data.expenses.map(e => e.date)).size;
+
+            return (
+                <div className="relative min-h-screen">
+                    <div className="dashboard-bg"></div>
+                    
+                    <div className="max-w-7xl mx-auto px-4 py-6 relative z-10">
+                        {/* Header */}
+                        <header className="flex flex-col md:flex-row justify-between items-center mb-8 glass-panel rounded-2xl p-4 slide-in-right" style={{animationDelay: '0.1s'}}>
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg shadow-indigo-500/20 text-lg">
+                                    {userEmail[0].toUpperCase()}
+                                </div>
+                                <div>
+                                    <h1 className="text-xl font-bold text-white tracking-tight">Dashboard</h1>
+                                    <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                        {currentTime.toLocaleDateString()} • {currentTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4 mt-4 md:mt-0">
+                                <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-xl">
+                                    <span className="text-xs font-bold text-slate-400 uppercase">Budget</span>
+                                    <div className="flex items-center">
+                                        <span className="text-slate-500 mr-1">₹</span>
+                                        <input type="number" value={data.budget} 
+                                            onChange={(e) => { MockDB.updateBudget(userEmail, Number(e.target.value)); setData(MockDB.getData(userEmail)); }} 
+                                            className="w-20 bg-transparent text-white font-bold outline-none text-right" />
+                                    </div>
+                                </div>
+                                <button onClick={doLogout} className="text-xs font-bold bg-white/10 hover:bg-white/20 text-white px-4 py-3 rounded-xl transition backdrop-blur-md">Log Out</button>
+                            </div>
+                        </header>
+
+                        {/* KPI Cards */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                            {[
+                                { title: 'Total Spent', val: `₹${total.toLocaleString()}`, color: 'text-white', sub: 'Monthly outflow' },
+                                { title: 'Remaining', val: `₹${(data.budget - total).toLocaleString()}`, color: (data.budget - total) < 0 ? 'text-rose-400' : 'text-emerald-400', sub: 'Available funds' },
+                                { title: 'Daily Avg', val: `₹${Math.round(total / (uniqueDays || 1)).toLocaleString()}`, color: 'text-indigo-400', sub: 'Spending pace' },
+                                { title: 'Transactions', val: data.expenses.length, color: 'text-amber-400', sub: 'Total entries' }
+                            ].map((item, idx) => (
+                                <div key={idx} className="glass-panel p-6 rounded-2xl hover:bg-white/5 transition-all duration-300 group fade-in-up" style={{animationDelay: `${0.1 * idx}s`}}>
+                                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 group-hover:text-slate-400 transition-colors">{item.title}</p>
+                                    <h2 className={`text-3xl font-bold ${item.color} mb-1 tracking-tight`}>{item.val}</h2>
+                                    <p className="text-xs text-slate-600">{item.sub}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Main Grid */}
+                        <div className="grid lg:grid-cols-3 gap-6">
+                            
+                            {/* Sticky Sidebar: Form + Mini Chart */}
+                            <div className="lg:col-span-1 space-y-6 lg:sticky lg:top-4 self-start">
+                                {/* Form Card */}
+                                <div className="glass-panel p-6 rounded-2xl fade-in-up" style={{animationDelay: '0.4s'}}>
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-lg font-bold text-white">{editId ? 'Edit Transaction' : 'New Expense'}</h3>
+                                        {editId && <button onClick={() => { setEditId(null); setFormData({...formData, desc:'', amount:''}) }} className="text-xs text-rose-400 hover:text-rose-300">Cancel</button>}
+                                    </div>
+                                    <form onSubmit={handleSave} className="space-y-4">
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase font-bold text-slate-500">Description</label>
+                                            <input type="text" placeholder="e.g. Netflix Subscription" required className="w-full glass-input px-4 py-3 rounded-xl text-sm placeholder-slate-600 focus:outline-none"
+                                                value={formData.desc} onChange={e => setFormData({...formData, desc: e.target.value})} />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase font-bold text-slate-500">Amount</label>
+                                                <input type="number" placeholder="0.00" required className="w-full glass-input px-4 py-3 rounded-xl text-sm placeholder-slate-600 focus:outline-none"
+                                                    value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] uppercase font-bold text-slate-500">Date</label>
+                                                <input type="date" required className="w-full glass-input px-4 py-3 rounded-xl text-sm text-slate-300 focus:outline-none"
+                                                    value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] uppercase font-bold text-slate-500">Category</label>
+                                            <div className="relative">
+                                                <select className="w-full glass-input px-4 py-3 rounded-xl text-sm text-slate-300 appearance-none focus:outline-none"
+                                                    value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                                                    {["Food & Dining", "Transport", "Groceries", "Entertainment", "Rent & Bills", "Shopping", "Misc"].map(c => <option key={c} className="bg-slate-800 text-white">{c}</option>)}
+                                                </select>
+                                                <div className="absolute right-4 top-3.5 text-slate-500 pointer-events-none text-xs">▼</div>
+                                            </div>
+                                        </div>
+                                        <button className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all transform active:scale-95 mt-2">
+                                            {editId ? 'Save Changes' : 'Add Transaction'}
+                                        </button>
+                                    </form>
+                                </div>
+
+                                {/* Mini Chart Card */}
+                                <div className="glass-panel p-6 rounded-2xl fade-in-up" style={{animationDelay: '0.5s'}}>
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Daily Spend Trend</h3>
+                                    <div className="chart-container h-48"><canvas ref={trendRef}></canvas></div>
+                                </div>
+                            </div>
+
+                            {/* Center/Right: Data Viz & List */}
+                            <div className="lg:col-span-2 space-y-6">
+                                {/* Categories Chart */}
+                                <div className="glass-panel p-6 rounded-2xl fade-in-up" style={{animationDelay: '0.6s'}}>
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-lg font-bold text-white">Category Breakdown</h3>
+                                    </div>
+                                    <div className="chart-container h-64"><canvas ref={catRef}></canvas></div>
+                                </div>
+
+                                {/* Transaction List */}
+                                <div className="glass-panel rounded-2xl overflow-hidden min-h-[500px] flex flex-col fade-in-up" style={{animationDelay: '0.7s'}}>
+                                    <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/5">
+                                        <h3 className="font-bold text-white">Recent Transactions</h3>
+                                        <div className="flex gap-2">
+                                            {['all', 'Food & Dining', 'Transport'].map(f => (
+                                                <button key={f} onClick={() => setFilter(f)} className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all ${filter === f ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'bg-transparent text-slate-400 hover:bg-white/5'}`}>
+                                                    {f === 'all' ? 'ALL' : f.split(' ')[0].toUpperCase()}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex-grow overflow-y-auto max-h-[600px] p-2 custom-scrollbar">
+                                        {displayList.length === 0 ? (
+                                            <div className="h-64 flex flex-col items-center justify-center text-slate-500 opacity-50">
+                                                <div className="text-4xl mb-2">🍃</div>
+                                                <p className="text-sm">No transactions yet.</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {displayList.sort((a,b) => new Date(b.date) - new Date(a.date)).map(t => (
+                                                    <div key={t.id} className="group flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="w-12 h-12 rounded-xl bg-slate-800/50 flex flex-col items-center justify-center text-slate-400 font-bold border border-white/5">
+                                                                <span className="text-[10px] uppercase tracking-wider">{new Date(t.date).toLocaleDateString('en-US', {month:'short'})}</span>
+                                                                <span className="text-sm text-white">{new Date(t.date).getDate()}</span>
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-slate-200 text-sm group-hover:text-white transition-colors">{t.desc}</div>
+                                                                <div className="text-[10px] font-bold text-indigo-400 uppercase tracking-wide mt-0.5">{t.category}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-4">
+                                                            <div className="font-bold text-white text-right">₹{Number(t.amount).toLocaleString()}</div>
+                                                            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => { setFormData({desc:t.desc, amount:t.amount, category:t.category, date:t.date}); setEditId(t.id); }} 
+                                                                    className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-white flex items-center justify-center transition">✎</button>
+                                                                <button onClick={() => setDeleteId(t.id)} 
+                                                                    className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white flex items-center justify-center transition">✕</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <DeleteModal isOpen={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={confirmDelete} />
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [userEmail, setUserEmail] = useState(null);
+            useEffect(() => {
+                const storedUser = localStorage.getItem('bachelor_current_user');
+                if (storedUser) setUserEmail(storedUser);
+            }, []);
+            const handleLogin = (email) => { setUserEmail(email); localStorage.setItem('bachelor_current_user', email); };
+            const handleLogout = () => { setUserEmail(null); localStorage.removeItem('bachelor_current_user'); };
+
+            return <div className="antialiased">{userEmail ? <Dashboard userEmail={userEmail} doLogout={handleLogout} /> : <Login onLogin={handleLogin} />}</div>;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
